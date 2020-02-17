@@ -77,6 +77,7 @@ def parse_args():
                                                        "peak_summit_in_bin_regression",
                                                        "peak_percent_overlap_with_bin_regression",
                                                        "all_genome_bins_regression"])
+    parser.add_argument("--store_qvals",default=False,action="store_true", help="for classification, also keep the q-values of peaks for positive bins")
     parser.add_argument("--label_transformer",default="asinh",help="type of transformation to apply to the labels; one of None, asinh, log10, log")
     parser.add_argument("--label_transformer_pseudocount",type=float,default=0.001,help="pseudocount to add to values if using log10 or log label transformations")
     parser.add_argument("--temp_dir",default="/tmp") 
@@ -113,7 +114,12 @@ def get_chrom_labels(inputs):
         chroms,all_start_pos,all_end_pos,first_bin_start,final_bin_start=get_indices(chrom,chrom_size,args)
     except:
         return (chrom,None)
-    columns=['CHR','START','END']+list(tasks['task'])
+    if args.store_qvals:
+        columns=['CHR','START','END']+list(tasks['task'])+[
+            task + "_qval" for task in tasks['task']
+        ]
+    else:
+        columns=['CHR','START','END']+list(tasks['task'])
     num_entries=len(chroms.values)
     chrom_df = pd.DataFrame(0,index=np.arange(num_entries),columns=columns)
     chrom_df['CHR']=chroms.values
@@ -148,10 +154,12 @@ def get_chrom_labels(inputs):
         kill_child_processes(os.getpid())
         raise e
 
-    for task_name,task_labels in bin_values:
+    for task_name,task_labels,task_qvals in bin_values:
         if task_labels is None:
             continue
         chrom_df[task_name]=task_labels
+        if args.store_qvals:
+            chrom_df[task_name + "_qval"]=task_qvals
     if args.split_output_by_chrom==True:
         if args.output_type in ["gzip","bz2"]: 
             chrom_df.to_csv(args.outf+"."+chrom,sep='\t',float_format="%.2f",header=True,index=False,mode='wb',compression=args.output_type,chunksize=1000000)
@@ -229,7 +237,7 @@ def write_output(task_names,full_df,first_chrom,args,mode='w',task_split_engaged
     '''
     if (args.split_output_by_task==True) and (task_split_engaged==False) :
         for task in task_names:
-            task_df=full_df[['CHR','START','END',task]]
+            task_df=full_df[['CHR','START','END',task,task+"_qval"]]
             write_output([task],task_df,first_chrom,args,mode=mode,task_split_engaged=True,outf=task.replace('/','.')+"."+args.outf)
         return
     if outf==None:
@@ -319,6 +327,7 @@ def args_object_from_args_dict(args_dict):
     vars(args_object)['output_hdf5_low_mem']=False
     vars(args_object)['task_list_sep']='\t'
     vars(args_object)['bigwig_stats']='mean'
+    vars(args_object)['store_qvals']=False
     vars(args_object)['label_transformer']='asinh'
     vars(args_object)['label_transformer_pseudocount']=0.001
     vars(args_object)['temp_dir']='/tmp'

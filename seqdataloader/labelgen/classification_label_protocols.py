@@ -27,7 +27,7 @@ def peak_summit_in_bin_classification(task_name,task_bed,task_bigwig,task_ambig,
     max_chrom_coord=final_bin_start
     if min_chrom_coord >= max_chrom_coord:
         print("the chromosome"+chrom+" is too short for the specified settings of --left_flank, --right_flank, --bin_size, skipping")
-        return task_name,None
+        return task_name,None,None
     chrom_coords=chrom+'\t'+str(min_chrom_coord)+'\t'+str(max_chrom_coord)
     chrom_bed=BedTool(chrom_coords,from_string=True)
     chrom_task_bed=task_bed.intersect(chrom_bed)
@@ -39,12 +39,14 @@ def peak_summit_in_bin_classification(task_name,task_bed,task_bigwig,task_ambig,
     #pre-allocate a numpy array of 0's
     num_bins=(final_bin_start-first_bin_start)//args.bin_stride+1
     coverage_vals=np.zeros(num_bins)
+    qvals=np.zeros(num_bins) if args.store_qvals else None
 
     for entry in chrom_task_bed:
         chrom=entry[0]
         peak_start=int(entry[1])
         peak_end=int(entry[2])
         summit=peak_start+int(entry[-1])
+        qval=float(entry[8])
 
         chromosome_min_bin_index=ceil((summit-args.bin_size-first_bin_start)/args.bin_stride)
         min_bin_start=chromosome_min_bin_index*args.bin_stride
@@ -56,6 +58,8 @@ def peak_summit_in_bin_classification(task_name,task_bed,task_bigwig,task_ambig,
         for bin_start in range(min_bin_start,max_bin_start+1,args.bin_stride):
             if index_coverage_vals >= 0 and index_coverage_vals <= (num_bins - 1):
                 coverage_vals[index_coverage_vals]=1
+                if args.store_qvals:
+                    qvals[index_coverage_vals]=qval
             index_coverage_vals+=1
 
         #if allow_ambiguous supplied by user, shift 1 bin left and 1 bin right
@@ -63,9 +67,13 @@ def peak_summit_in_bin_classification(task_name,task_bed,task_bigwig,task_ambig,
             chromosome_min_bin_index-=1
             if chromosome_min_bin_index > 0 and chromosome_min_bin_index <= (num_bins - 1):
                 coverage_vals[chromosome_min_bin_index]=np.nan
+                if args.store_qvals:
+                    qvals[chromosome_min_bin_index]=qval
             chromosome_max_bin_index+=1
             if chromosome_max_bin_index >= 0 and chromosome_max_bin_index < (num_bins - 1):
                 coverage_vals[chromosome_max_bin_index]=np.nan
+                if args.store_qvals:
+                    qvals[chromosome_max_bin_index]=qval
                 
     #if a bed file of ambiguous labels is specified, label them with -1
     if ((args.allow_ambiguous==True) and (chrom_ambig_bed!=None)):
@@ -85,10 +93,12 @@ def peak_summit_in_bin_classification(task_name,task_bed,task_bigwig,task_ambig,
             for bin_start in range(min_bin_start,max_bin_start+1,args.bin_stride):
                 if index_coverage_vals >= 0 and index_coverage_vals <= (num_bins - 1):
                     coverage_vals[index_coverage_vals]=np.nan
+                    if args.store_qvals:
+                        qvals[index_coverage_vals]=qval
                 index_coverage_vals+=1
         
     print("finished chromosome:"+str(chrom)+" for task:"+str(task_name))
-    return task_name,coverage_vals
+    return task_name,coverage_vals,qvals
 
 def peak_percent_overlap_with_bin_classification(task_name,task_bed,task_bigwig,task_ambig,chrom,first_bin_start,final_bin_start,args):
     '''
@@ -102,7 +112,7 @@ def peak_percent_overlap_with_bin_classification(task_name,task_bed,task_bigwig,
     max_chrom_coord=final_bin_start
     if min_chrom_coord >= max_chrom_coord:
         print("the chromosome"+chrom+" is too short for the specified settings of --left_flank, --right_flank, --bin_size, skipping")
-        return task_name, None
+        return task_name, None, None
     chrom_coords=chrom+'\t'+str(min_chrom_coord)+'\t'+str(max_chrom_coord)
     chrom_bed=BedTool(chrom_coords,from_string=True)
     chrom_task_bed=task_bed.intersect(chrom_bed)
@@ -113,11 +123,13 @@ def peak_percent_overlap_with_bin_classification(task_name,task_bed,task_bigwig,
     #pre-allocate a numpy array of 0's
     num_bins=(final_bin_start-first_bin_start)//args.bin_stride+1
     coverage_vals=np.zeros(num_bins)
+    qvals=np.zeros(num_bins) if args.store_qvals else None
 
     for entry in chrom_task_bed:
         chrom=entry[0]
         peak_start=int(entry[1])
         peak_end=int(entry[2])
+        qval=float(entry[8])
         min_overlap=int(round(args.overlap_thresh*min(args.bin_size, (peak_end-peak_start))))
 
         #get the bin indices that overlap the peak
@@ -131,6 +143,8 @@ def peak_percent_overlap_with_bin_classification(task_name,task_bed,task_bigwig,
         for bin_start in range(min_bin_start,max_bin_start+1,args.bin_stride):
             if index_coverage_vals >= 0 and index_coverage_vals <= (num_bins - 1):
                 coverage_vals[index_coverage_vals]=1
+                if args.store_qvals:
+                    qvals[index_coverage_vals]=qval
                 index_coverage_vals+=1
 
         #if allow_ambiguous supplied by user, shift 1 bin left and 1 bin right
@@ -138,9 +152,13 @@ def peak_percent_overlap_with_bin_classification(task_name,task_bed,task_bigwig,
             if chromosome_min_bin_index > 0 and chromosome_min_bin_index <= (num_bins - 1):
                 chromosome_min_bin_index-=1
                 coverage_vals[chromosome_min_bin_index]=np.nan
+                if args.store_qvals:
+                    qvals[chromosome_min_bin_index]=qval
             if chromosome_max_bin_index >= 0 and chromosome_max_bin_index < (num_bins - 1):
                 chromosome_max_bin_index+=1
                 coverage_vals[chromosome_max_bin_index]=np.nan
+                if args.store_qvals:
+                    qvals[chromosome_max_bin_index]=qval
     if ((args.allow_ambiguous==True) and (task_ambig!=None)):
         for entry in chrom_ambig_bed:
             chrom=entry[0]
@@ -159,7 +177,9 @@ def peak_percent_overlap_with_bin_classification(task_name,task_bed,task_bigwig,
             for bin_start in range(min_bin_start,max_bin_start+1,args.bin_stride):
                 if index_coverage_vals >= 0 and index_coverage_vals <= (num_bins - 1):
                     coverage_vals[index_coverage_vals]=np.nan
+                    if args.store_qvals:
+                        qvals[index_coverage_vals]=qval
                     index_coverage_vals+=1
         
     print("finished chromosome:"+str(chrom)+" for task:"+str(task_name))
-    return task_name,coverage_vals
+    return task_name,coverage_vals,qvals
